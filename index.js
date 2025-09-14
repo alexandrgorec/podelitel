@@ -52,6 +52,7 @@ const commands = {
     deleteUser: 'deleteUser',
     chooseBuyer: 'chooseBuyer',
     changeNameRoom: 'changeNameRoom',
+    deleteRoom: 'deleteRoom',
     textRoom: '🏰 В комнату',
 }
 
@@ -61,10 +62,12 @@ const states = {
     inputBuyDescription: 'inputBuyDescription',
     chooseBuyer: 'chooseBuyer',
     changeNameRoom: 'changeNameRoom',
+    deleteRoom: 'deleteRoom',
 }
 
 const buttons = {
     createRoom: { text: '🆕 Создать комнату', callback_data: JSON.stringify({ command: commands.createRoom, data: null }) },
+    deleteRoom: { text: '❌ Удалить комнату', callback_data: JSON.stringify({ command: commands.deleteRoom, data: null }) },
     myRooms: { text: '🏘 Мои комнаты', callback_data: JSON.stringify({ command: commands.myRooms, data: null }) },
     myInvites: { text: '✉️ Мои приглашения', callback_data: JSON.stringify({ command: commands.myInvites, data: null }) },
     mainMenu: { text: '▶️ Главное меню', callback_data: JSON.stringify({ command: commands.mainMenu, data: null }) },
@@ -102,6 +105,7 @@ const administrationRoom = [
     [buttons.addUser],
     [buttons.deleteUser],
     [buttons.changeNameRoom],
+    [buttons.deleteRoom],
     [buttons.room],
 ]
 
@@ -155,6 +159,7 @@ const deleteBotMessages = (user, CHATID) => {
 }
 
 bot.on('callback_query', async (ctx) => {
+    
     try {
         if (users[ctx.from.id] === undefined)
             users[ctx.from.id] = { state: null, rooms: [], buy: {}, activeRoom: null, username: ctx.from.username, isAdmin: false, arrayMessagesForDelete: [] };
@@ -178,22 +183,40 @@ bot.on('callback_query', async (ctx) => {
                     buys: [],
                     admin: user.username,
                     name: `Комната № ${db.roomCounter}`,
+                    id: db.roomCounter,
                 };
                 user.rooms.push(db.roomCounter);
                 menu.reply_markup.inline_keyboard = [];
                 user.rooms.forEach((roomId) => {
-                    const roomName = rooms[roomId].name;
-                    menu.reply_markup.inline_keyboard.push([{ text: roomName, callback_data: JSON.stringify({ command: 'Выбор комнаты', data: roomId }) }]);
+                    if (rooms[roomId] != undefined) {
+                        const roomName = rooms[roomId].name;
+                        menu.reply_markup.inline_keyboard.push([{ text: roomName, callback_data: JSON.stringify({ command: 'Выбор комнаты', data: roomId }) }]);
+                    }
                 });
                 menu.reply_markup.inline_keyboard.push([buttons.mainMenu]);
                 reply(`Поздравляем комната № ${db.roomCounter} создана, вы в ней администратор 😎`, menu, ctx, user);
                 break;
             }
+            case commands.deleteRoom: {
+                menu.reply_markup.inline_keyboard = [];
+                menu.reply_markup.inline_keyboard.push([{ text: "ДА", callback_data: JSON.stringify({ command: 'deletingRoom', data: user.activeRoom.id }) }]);
+                menu.reply_markup.inline_keyboard.push([buttons.mainMenu]);
+                reply(`Точно удаляем?:`, menu, ctx, user);
+                break;
+            }
+            case "deletingRoom": {
+                delete rooms[data];
+                menu.reply_markup.inline_keyboard = mainMenu;
+                reply(`Главное меню:`, menu, ctx, user);
+                break;
+            }
             case commands.myRooms: {
                 menu.reply_markup.inline_keyboard = [];
                 user.rooms.forEach((roomId) => {
-                    const roomName = rooms[roomId].name;
-                    menu.reply_markup.inline_keyboard.push([{ text: roomName, callback_data: JSON.stringify({ command: 'Выбор комнаты', data: roomId }) }]);
+                    if (rooms[roomId] != undefined) {
+                        const roomName = rooms[roomId].name;
+                        menu.reply_markup.inline_keyboard.push([{ text: roomName, callback_data: JSON.stringify({ command: 'Выбор комнаты', data: roomId }) }]);
+                    }
                 });
                 menu.reply_markup.inline_keyboard.push([buttons.mainMenu]);
                 reply(`В какую зайдем?:`, menu, ctx, user);
@@ -252,8 +275,8 @@ bot.on('callback_query', async (ctx) => {
             }
             case commands.deleteUser: {
                 menu.reply_markup.inline_keyboard = [];
-                user.activeRoom.users.forEach(name => {
-                    menu.reply_markup.inline_keyboard.push([{ text: name, callback_data: JSON.stringify({ command: "deletingUser", data: name }) }])
+                user.activeRoom.users.forEach((name, ind) => {
+                    menu.reply_markup.inline_keyboard.push([{ text: name, callback_data: JSON.stringify({ command: "deletingUser", data: ind }) }])
                 });
                 menu.reply_markup.inline_keyboard.push([buttons.administration])
                 reply("Выбери участника, который покинет наши ряды:\nи ПОМНИ - Все его расходы удалятся!", menu, ctx, user);
@@ -261,10 +284,16 @@ bot.on('callback_query', async (ctx) => {
             }
             case "deletingUser": {
                 menu.reply_markup.inline_keyboard = administrationRoom;
-                user.activeRoom.users = user.activeRoom.users.filter(name => name != data);
-                user.activeRoom.buys = user.activeRoom.buys.filter(({ buyer }) => buyer != data);
+                let deleteNameUser = '';
+                user.activeRoom.users = user.activeRoom.users.filter((name, ind) => {
+                    if (ind == data) {
+                        deleteNameUser = name;
+                    }
+                    return ind != data
+                });
+                user.activeRoom.buys = user.activeRoom.buys.filter(({ buyer }) => buyer != deleteNameUser);
                 user.state = commands.administration;
-                reply(`Участника ${data} больше нет с нами, без него стало лучше!`, menu, ctx, user)
+                reply(`Участника ${deleteNameUser} больше нет с нами, без него стало лучше!`, menu, ctx, user)
                 break;
             }
             case commands.whoThere: {
@@ -300,8 +329,13 @@ bot.on('callback_query', async (ctx) => {
                 break;
             }
             case commands.chooseBuyer: {
-                if (user.activeRoom.users.includes(data)) {
-                    user.buy.buyer = data;
+                let buyerName = "";
+                user.activeRoom.users.forEach((name, ind) => {
+                    if (ind == data)
+                        buyerName = name;
+                })
+                if (user.activeRoom.users.includes(buyerName)) {
+                    user.buy.buyer = buyerName;
                     user.buy.manager = `@${user.username}`;
                     user.activeRoom.buys.push({ ...user.buy });
                     menu.reply_markup.inline_keyboard = buysMenu;
@@ -443,7 +477,7 @@ bot.on('message', async (ctx) => {
             break;
         }
         case states.inputBuySum: {
-            if (Number.isFinite(+message)) {
+            if ((Number.isFinite(+message)) && (+message > 0) && (+message < 10000000)) {
                 user.buy.cost = +message;
                 user.state = states.inputBuyDescription;
                 menuKeyboard.reply_markup.keyboard = [[commands.textRoom]];
@@ -451,7 +485,7 @@ bot.on('message', async (ctx) => {
 
             } else {
                 menuKeyboard.reply_markup.keyboard = [[commands.textRoom]];
-                reply('Число вводи дурень, без всякой херни:', menuKeyboard, ctx, user)
+                reply('Вводи нормальное число, без всякой херни:', menuKeyboard, ctx, user)
             }
 
             break;
@@ -460,7 +494,7 @@ bot.on('message', async (ctx) => {
             user.buy.description = message;
             menu.reply_markup.inline_keyboard = [];
             if (user.activeRoom) {
-                user.activeRoom.users.forEach(name => menu.reply_markup.inline_keyboard.push([{ text: name, callback_data: JSON.stringify({ command: commands.chooseBuyer, data: name }) }]));
+                user.activeRoom.users.forEach((name, ind) => menu.reply_markup.inline_keyboard.push([{ text: name, callback_data: JSON.stringify({ command: commands.chooseBuyer, data: ind }) }]));
                 menu.reply_markup.inline_keyboard.push([buttons.buys]);
                 reply('Кто из участников платил?', menu, ctx, user, ctx, user)
             }
